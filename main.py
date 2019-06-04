@@ -33,15 +33,14 @@ parser.add_argument('--l2-reg',             type=float,     default=1e-4)
 parser.add_argument('--lr-decay-rate',      type=float,     default=0.2)
 parser.add_argument('--max-iter',           type=int,       default=500000)
 parser.add_argument('--lr-decay-at',        type=float,     default=400000)
-parser.add_argument('--normalization',      type=str,       default='ZCA')
-parser.add_argument('--gaussian-noise-level',type=float,    default=0.15)
+parser.add_argument('--normalization',      type=str,       default='GCN_ZCA')
 parser.add_argument('--num-workers',        type=int,       default=20)
-parser.add_argument('--print-freq',         type=int,       default=100)
+parser.add_argument('--print-freq',         type=int,       default=20)
 parser.add_argument('--split',              type=int,       default=0)
-parser.add_argument('--eval-iter',          type=int,       default=10000)
+parser.add_argument('--eval-iter',          type=int,       default=2000)
 
 parser.add_argument('--UDA',                action='store_true')
-parser.add_argument('--UDA-default-preproc',action='store_true')
+parser.add_argument('--use-cutout',         action='store_true')
 parser.add_argument('--TSA',                type=str,       default=None)
 parser.add_argument('--batch-size-unsup',   type=int,       default=960)
 parser.add_argument('--unsup-loss-weight',  type=float,     default=1.0)
@@ -59,12 +58,6 @@ def TSA_th(cur_step):
         th = 1.0
     return th
 
-class GaussianNoise(object):
-    def __init__(self, noise_level):
-        self.noise_level = noise_level
-    def __call__(self, img):
-        return img + img.clone().normal_(0, self.noise_level)
-
 def global_contrast_normalize(X, scale=55., min_divisor=1e-8):
     X = X.view(X.size(0), -1)
     X = X - X.mean(dim=1, keepdim=True)
@@ -73,7 +66,8 @@ def global_contrast_normalize(X, scale=55., min_divisor=1e-8):
     normalizers[normalizers < min_divisor] = 1.
     X /= normalizers
 
-    return X
+    return X.view(X.size(0),3,32,32)
+    #return X
 
 class ZCA(object):
     def __init__(self, zca_params):
@@ -81,6 +75,7 @@ class ZCA(object):
         self.W = torch.FloatTensor(zca_params['W']).cuda()
 
     def __call__(self, sample):
+        sample = sample.view( sample.size(0), -1 )
         return torch.matmul( sample - self.meanX, self.W ).view(sample.size(0), 3,32,32)
 
 def main():
@@ -88,14 +83,13 @@ def main():
 
     best_prec1 = 0
     args = parser.parse_args()
+    assert args.normalization in ['GCN_ZCA', 'GCN'], 'normalization {} unknown'.format(args.normalization)
 
     global zca
-    zca_params = torch.load('./zca_params.pth')
+    zca_params = torch.load('./data/cifar-10-batches-py/zca_params.pth')
     zca = ZCA(zca_params)
-    global gaussian
-    gaussian = GaussianNoise(args.gaussian_noise_level)
 
-    exp_dir = os.path.join('experiments_3', args.name)
+    exp_dir = os.path.join('experiments', args.name)
     if os.path.exists(exp_dir):
         print ("same experiment exist...")
         #return
@@ -105,17 +99,7 @@ def main():
     # DATA SETTINGS
     global dataset_train, dataset_test
     if args.dataset == 'cifar10':
-        if args.normalization == 'MEAN_STD':
-            import cifar_semi as cifar
-        elif args.normalization == 'ZCA_v1':
-            import cifar_semi_zca as cifar
-        elif args.normalization == 'ZCA_v2':
-            import cifar_semi_zca_v2 as cifar
-        elif args.normalization == 'ZCA_v3':
-            import cifar_semi_zca_v3 as cifar
-        else:
-            raise NotImplementedError("normalization {} is not implemented.".format(args.normalization))
-
+        import cifar
         dataset_train = cifar.CIFAR10(args, train=True)
         dataset_test = cifar.CIFAR10(args, train=False)
     if args.UDA:
@@ -194,10 +178,7 @@ def train(model, data_iterator, optimizer, iteration, data_iterator_uda=None):
     input, target = next(data_iterator)
     input, target = input.cuda(), target.cuda().long()
 
-    global zca
-    input = zca( global_contrast_normalize( input ) )
-    global gaussian
-    input = gaussian( input )
+    input = global_contrast_normalize( input )
 
     output = model(input)
 
@@ -221,9 +202,12 @@ def train(model, data_iterator, optimizer, iteration, data_iterator_uda=None):
         input_unsup, input_unsup_aug = next(data_iterator_uda)
         input_unsup = input_unsup.cuda()
         input_unsup_aug = input_unsup_aug.cuda()
-        input_unsup = gaussian( zca( global_contrast_normalize( input_unsup ) ) )
-        input_unsup_aug = gaussian( zca( global_contrast_normalize( input_unsup_aug) ) )
-        output_unsup = model(input_unsup)
+
+        input_unsup     = global_contrast_normalize( input_unsup )
+        input_unsup_aug = global_contrast_normalize( input_unsup_aug )
+
+        with torch.no_grad():
+            output_unsup = model(input_unsup)
         output_unsup_aug = model(input_unsup_aug)
 
         loss_unsup = torch.nn.functional.kl_div( 
@@ -273,15 +257,12 @@ def test(model, val_loader):
     for i, (input, target) in enumerate(val_loader):
         target = target.cuda(async=True).long()
         input = input.cuda()
-        global zca
-        input = zca( global_contrast_normalize( input ) )
-        input_var  = input
-        target_var = target
+        input = global_contrast_normalize( input )
 
         # compute output
         with torch.no_grad():
-            output = model(input_var)
-        loss = torch.nn.functional.cross_entropy(output, target_var)
+            output = model(input)
+        loss = torch.nn.functional.cross_entropy(output, target)
 
         # measure accuracy and record loss
         prec1 = accuracy(output.data, target, topk=(1,))[0]
