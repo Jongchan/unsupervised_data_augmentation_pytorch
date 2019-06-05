@@ -27,12 +27,14 @@ parser.add_argument('--name',               type=str,       required=True)
 # HYPER PARAMS
 parser.add_argument('--dropout-rate',       type=float,     default=0.3)
 parser.add_argument('--lr',                 type=float,     default=3e-3)
+parser.add_argument('--final-lr',           type=float,     default=1.2e-4)
 parser.add_argument('--batch-size',         type=int,       default=100)
 parser.add_argument('--l1-reg',             type=float,     default=1e-6)
 parser.add_argument('--l2-reg',             type=float,     default=1e-4)
 parser.add_argument('--lr-decay-rate',      type=float,     default=0.2)
 parser.add_argument('--max-iter',           type=int,       default=500000)
 parser.add_argument('--lr-decay-at',        type=float,     default=400000)
+parser.add_argument('--lr-decay',           type=str,       default='step')
 parser.add_argument('--normalization',      type=str,       default='GCN_ZCA')
 parser.add_argument('--num-workers',        type=int,       default=20)
 parser.add_argument('--print-freq',         type=int,       default=20)
@@ -40,6 +42,7 @@ parser.add_argument('--split',              type=int,       default=0)
 parser.add_argument('--eval-iter',          type=int,       default=2000)
 
 parser.add_argument('--UDA',                action='store_true')
+parser.add_argument('--UDA-CUTOUT',                action='store_true')
 parser.add_argument('--use-cutout',         action='store_true')
 parser.add_argument('--TSA',                type=str,       default=None)
 parser.add_argument('--batch-size-unsup',   type=int,       default=960)
@@ -303,7 +306,12 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 def adjust_learning_rate(optimizer, it):
-    lr = args.lr * ( args.lr_decay_rate ** int(it >= args.lr_decay_at) )
+    if args.lr_decay=='step':
+        lr = args.lr * ( args.lr_decay_rate ** int(it >= args.lr_decay_at) )
+    elif args.lr_decay=='linear':
+        lr = args.final_lr + (args.lr-args.final_lr) * float(args.max_iter - it) / float(args.max_iter)
+    else:
+        raise ValueError('unknown lr decay method {}'.format(args.lr_decay))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return lr

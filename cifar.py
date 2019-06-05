@@ -57,32 +57,6 @@ class Cutout(object):
 
         return img
 
-class GaussianNoise(object):
-    def __init__(self, noise_level):
-        self.noise_level = noise_level
-    def __call__(self, img):
-        return img + img.clone().normal_(0, self.noise_level)
-        #return img + np.random.normal( 0, self.noise_level, img.shape )
-
-def global_contrast_normalize(X, scale=55., min_divisor=1e-8):
-    X = X - X.mean(axis=1)[:, np.newaxis]
-
-    normalizers = np.sqrt((X ** 2).sum(axis=1)) / scale
-    normalizers[normalizers < min_divisor] = 1.
-
-    print (normalizers.squeeze())
-    X /= normalizers[:, np.newaxis]
-
-    return X
-
-class ZCA(object):
-    def __init__(self, zca_params):
-        self.meanX = zca_params['meanX']
-        self.W = zca_params['W']
-
-    def __call__(self, sample):
-        return np.reshape( np.dot( sample - self.meanX, self.W ), (3,32,32)).astype(np.float32)
-
 class CIFAR10(data.Dataset):
     """`CIFAR10 <https://www.cs.toronto.edu/~kriz/cifar.html>`_ Dataset.
 
@@ -130,11 +104,17 @@ class CIFAR10(data.Dataset):
         self.uda = uda
 
         self.train = train
-        self.zca_params = torch.load('./data/cifar-10-batches-py/zca_params.pth')
-        self.ZCA = ZCA(self.zca_params)
 
         if self.args.use_cutout:
             self.autoaugment = transforms.Compose([
+                transforms.ToTensor(),
+                Cutout(n_holes=1, length=16),
+                transforms.ToPILImage(),
+                ])
+        elif self.args.UDA_CUTOUT:
+            print ("USE UDA CUTOUT")
+            self.autoaugment = transforms.Compose([
+                autoaugment.CIFAR10Policy(),
                 transforms.ToTensor(),
                 Cutout(n_holes=1, length=16),
                 transforms.ToPILImage(),
@@ -218,7 +198,41 @@ class CIFAR10(data.Dataset):
         Returns:
             tuple: (image, target) where target is index of the target class.
         """
+
+        '''
+            Labeled data
+                X_raw --> [common preproc (filp/random crop)] --> GCN --> X
+
+            Unlabeled data
+                X_raw --> [common preproc (filp/random crop)] --> GCN --> X
+                X_raw --> AutoAugment --> [common preproc (filp/random crop)] --> GCN --> X_aug
+
+            Test data
+                X_raw --> GCN --> X
+
+        '''
         index = index % len(self.data)
+
+        if self.uda:
+            # UNLABELED
+            img_raw = self.data[index] # image with shape 32,32,3
+            img_raw = Image.fromarray(img_raw) # PIL image
+
+            img_uda = self.transform(self.autoaugment(img_raw)) # torch tensor shape 3,32,32
+            img = self.transform(img_raw) # torch tensor shape 3,32,32
+            return img.type(torch.FloatTensor), img_uda.type(torch.FloatTensor)
+        else:
+
+            img_raw, target = self.data[index], self.targets[index] # image with shape 32,32,3
+            img_raw = Image.fromarray(img_raw) # PIL image
+            if self.train:#LABELED
+                img = self.transform(img_raw) # torch tensor shape 3,32,32
+            else:#TEST
+                img = transforms.ToTensor()(img_raw)
+            return img.type(torch.FloatTensor), target
+
+
+        '''
         if self.uda:
             img = self.data[index] # image with shape 32,32,3
         else:
@@ -241,6 +255,7 @@ class CIFAR10(data.Dataset):
             img = transforms.ToTensor()(img)
 
         return img.type(torch.FloatTensor), target
+        '''
 
     def __len__(self):
         if self.train:
