@@ -132,19 +132,34 @@
 #    --name UDA_GCN_no_l1_l2_no_TSA_lr_0.003_0.00012_100K \
 #    >> UDA_GCN_no_l1_l2_no_TSA_lr_0.003_0.00012_100K.log &
 
-CUDA_VISIBLE_DEVICES=6,7 \
+#CUDA_VISIBLE_DEVICES=6,7 \
+#    python main.py \
+#    --normalization GCN \
+#    --l1-reg 0.0 \
+#    --l2-reg 0.0 \
+#    --batch-size 32 \
+#    --lr 0.003 \
+#    --lr-decay-rate 0.04 \
+#    --max-iter 100000 \
+#    --final-lr 0.00012 \
+#    --lr-decay-at 80000 \
+#    --lr-decay linear \
+#    --UDA \
+#    --UDA-CUTOUT \
+#    --name UDA_GCN_no_l1_l2_no_TSA_lr_decay_linear_100K \
+#    >> UDA_GCN_no_l1_l2_no_TSA_lr_lr_decay_linear_100K.log &
+CUDA_VISIBLE_DEVICES=4,5 \
     python main.py \
     --normalization GCN \
     --l1-reg 0.0 \
     --l2-reg 0.0 \
     --batch-size 32 \
-    --lr 0.003 \
-    --lr-decay-rate 0.04 \
+    --lr 0.03 \
+    --lr-decay-rate 0.2 \
     --max-iter 100000 \
-    --final-lr 0.00012 \
-    --lr-decay-at 80000 \
-    --lr-decay linear \
+    --lr-decay-at 80000 90000 \
+    --AutoAugment \
     --UDA \
     --UDA-CUTOUT \
-    --name UDA_GCN_no_l1_l2_no_TSA_lr_decay_linear_100K \
-    >> UDA_GCN_no_l1_l2_no_TSA_lr_lr_decay_linear_100K.log &
+    --name UDA_lr_0.03_autoaugment \
+    >> UDA_lr_0.03_autoaugment.log &

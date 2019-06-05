@@ -124,6 +124,11 @@ class CIFAR10(data.Dataset):
                 autoaugment.CIFAR10Policy(),
                 ])
 
+        if self.args.AutoAugment:
+            self.autoaugment_labeled = transforms.Compose([
+                autoaugment.CIFAR10Policy(),
+                ])
+
         if self.train:
             self.transform = transforms.Compose([
                 transforms.RandomCrop(32, padding=4, padding_mode='reflect'), 
@@ -227,7 +232,7 @@ class CIFAR10(data.Dataset):
             img = Image.fromarray(img) # PIL image
             if self.train:#LABELED
                 if self.args.AutoAugment:
-                    img = self.autoaugment(img)
+                    img = self.autoaugment_labeled(img)
                 img = self.transform(img) # torch tensor shape 3,32,32
             else:#TEST
                 img = transforms.ToTensor()(img)
