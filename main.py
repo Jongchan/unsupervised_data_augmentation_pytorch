@@ -32,8 +32,8 @@ parser.add_argument('--batch-size',         type=int,       default=100)
 parser.add_argument('--l1-reg',             type=float,     default=1e-6)
 parser.add_argument('--l2-reg',             type=float,     default=1e-4)
 parser.add_argument('--lr-decay-rate',      type=float,     default=0.2)
-parser.add_argument('--max-iter',           type=int,       default=500000)
-parser.add_argument('--lr-decay-at',        type=float,     default=400000)
+parser.add_argument('--max-iter',           type=int,       default=100000)
+parser.add_argument('--lr-decay-at',        nargs='+',      default=[80000, 90000])
 parser.add_argument('--lr-decay',           type=str,       default='step')
 parser.add_argument('--normalization',      type=str,       default='GCN_ZCA')
 parser.add_argument('--num-workers',        type=int,       default=20)
@@ -41,6 +41,7 @@ parser.add_argument('--print-freq',         type=int,       default=20)
 parser.add_argument('--split',              type=int,       default=0)
 parser.add_argument('--eval-iter',          type=int,       default=2000)
 
+parser.add_argument('--AutoAugment',                action='store_true')
 parser.add_argument('--UDA',                action='store_true')
 parser.add_argument('--UDA-CUTOUT',                action='store_true')
 parser.add_argument('--use-cutout',         action='store_true')
@@ -86,11 +87,15 @@ def main():
 
     best_prec1 = 0
     args = parser.parse_args()
+    print (args.lr_decay_at)
     assert args.normalization in ['GCN_ZCA', 'GCN'], 'normalization {} unknown'.format(args.normalization)
 
     global zca
-    zca_params = torch.load('./data/cifar-10-batches-py/zca_params.pth')
-    zca = ZCA(zca_params)
+    if 'ZCA' in args.normalization:
+        zca_params = torch.load('./data/cifar-10-batches-py/zca_params.pth')
+        zca = ZCA(zca_params)
+    else:
+        zca = None
 
     exp_dir = os.path.join('experiments', args.name)
     if os.path.exists(exp_dir):
@@ -234,10 +239,13 @@ def train(model, data_iterator, optimizer, iteration, data_iterator_uda=None):
     #loss = loss_sup + loss_l1
 
     optimizer.zero_grad()
-    loss_sup.backward()
-    loss_l1.backward()
+    #loss_sup.backward()
+    #loss_l1.backward()
     if loss_unsup is not None:
-        loss_unsup.backward()
+        loss_all = loss_sup + loss_unsup
+    else:
+        loss_all = loss_sup
+    loss_all.backward()
     optimizer.step()
 
     top1.update( prec1.item(), input.size(0) )
@@ -307,7 +315,9 @@ class AverageMeter(object):
 
 def adjust_learning_rate(optimizer, it):
     if args.lr_decay=='step':
-        lr = args.lr * ( args.lr_decay_rate ** int(it >= args.lr_decay_at) )
+        lr = args.lr
+        for lr_decay_at in args.lr_decay_at:
+            lr *= args.lr_decay_rate ** int(it >= int(lr_decay_at) )
     elif args.lr_decay=='linear':
         lr = args.final_lr + (args.lr-args.final_lr) * float(args.max_iter - it) / float(args.max_iter)
     else:

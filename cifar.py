@@ -223,12 +223,14 @@ class CIFAR10(data.Dataset):
             return img.type(torch.FloatTensor), img_uda.type(torch.FloatTensor)
         else:
 
-            img_raw, target = self.data[index], self.targets[index] # image with shape 32,32,3
-            img_raw = Image.fromarray(img_raw) # PIL image
+            img, target = self.data[index], self.targets[index] # image with shape 32,32,3
+            img = Image.fromarray(img) # PIL image
             if self.train:#LABELED
-                img = self.transform(img_raw) # torch tensor shape 3,32,32
+                if self.args.AutoAugment:
+                    img = self.autoaugment(img)
+                img = self.transform(img) # torch tensor shape 3,32,32
             else:#TEST
-                img = transforms.ToTensor()(img_raw)
+                img = transforms.ToTensor()(img)
             return img.type(torch.FloatTensor), target
 
 
