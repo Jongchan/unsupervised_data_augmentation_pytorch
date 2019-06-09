@@ -148,6 +148,82 @@
 #    --UDA-CUTOUT \
 #    --name UDA_GCN_no_l1_l2_no_TSA_lr_decay_linear_100K \
 #    >> UDA_GCN_no_l1_l2_no_TSA_lr_lr_decay_linear_100K.log &
+
+#CUDA_VISIBLE_DEVICES=4,5 \
+#    python main.py \
+#    --normalization GCN \
+#    --l1-reg 0.0 \
+#    --l2-reg 0.0 \
+#    --batch-size 32 \
+#    --lr 0.03 \
+#    --lr-decay-rate 0.2 \
+#    --max-iter 100000 \
+#    --lr-decay-at 80000 90000 \
+#    --AutoAugment \
+#    --UDA \
+#    --UDA-CUTOUT \
+#    --name UDA_lr_0.03_autoaugment_no_cutout \
+#    >> UDA_lr_0.03_autoaugment_no_cutout.log &
+#CUDA_VISIBLE_DEVICES=4,5 \
+#    python main.py \
+#    --normalization GCN \
+#    --l1-reg 0.0 \
+#    --l2-reg 0.0 \
+#    --batch-size 32 \
+#    --lr 0.003 \
+#    --lr-decay-rate 0.2 \
+#    --max-iter 100000 \
+#    --lr-decay-at 80000 90000 \
+#    --AutoAugment-all \
+#    --UDA \
+#    --UDA-CUTOUT \
+#    --name UDA_lr_0.003_autoaugment_all \
+#    >> UDA_lr_0.003_autoaugment_all.log &
+#CUDA_VISIBLE_DEVICES=6,7 \
+#    python main.py \
+#    --normalization GCN \
+#    --l1-reg 0.0 \
+#    --l2-reg 0.0 \
+#    --batch-size 32 \
+#    --lr 0.03 \
+#    --lr-decay-rate 0.2 \
+#    --max-iter 100000 \
+#    --lr-decay-at 80000 90000 \
+#    --AutoAugment-cutout-only \
+#    --UDA \
+#    --UDA-CUTOUT \
+#    --name UDA_lr_0.03_autoaugment_only_cutout \
+#    >> UDA_lr_0.03_autoaugment_only_cutout.log &
+CUDA_VISIBLE_DEVICES=0,1 \
+    python main.py \
+    --normalization GCN \
+    --l1-reg 0.0 \
+    --l2-reg 0.0 \
+    --batch-size 32 \
+    --lr 0.03 \
+    --final-lr 0.00012 \
+    --max-iter 100000 \
+    --UDA \
+    --UDA-CUTOUT \
+    --optimizer SGD \
+    --lr-decay cosine \
+    --name autoaugment_code_base_UDA_SGD_COSINELR \
+    >> autoaugment_code_base_UDA_SGD_COSINELR.log &
+CUDA_VISIBLE_DEVICES=2,3 \
+    python main.py \
+    --normalization GCN \
+    --l1-reg 0.0 \
+    --l2-reg 0.0 \
+    --batch-size 32 \
+    --lr 0.03 \
+    --final-lr 0.00012 \
+    --max-iter 100000 \
+    --UDA \
+    --UDA-CUTOUT \
+    --optimizer Adam \
+    --lr-decay cosine \
+    --name autoaugment_code_base_UDA_Adam_COSINELR \
+    >> autoaugment_code_base_UDA_Adam_COSINELR.log &
 CUDA_VISIBLE_DEVICES=4,5 \
     python main.py \
     --normalization GCN \
@@ -155,11 +231,28 @@ CUDA_VISIBLE_DEVICES=4,5 \
     --l2-reg 0.0 \
     --batch-size 32 \
     --lr 0.03 \
-    --lr-decay-rate 0.2 \
+    --final-lr 0.00012 \
     --max-iter 100000 \
-    --lr-decay-at 80000 90000 \
-    --AutoAugment \
     --UDA \
     --UDA-CUTOUT \
-    --name UDA_lr_0.03_autoaugment \
-    >> UDA_lr_0.03_autoaugment.log &
+    --AutoAugment \
+    --optimizer Adam \
+    --lr-decay cosine \
+    --name autoaugment_code_base_UDA_Adam_COSINELR_AutoAugment \
+    >> autoaugment_code_base_UDA_Adam_COSINELR_AutoAugment.log &
+CUDA_VISIBLE_DEVICES=6,7 \
+    python main.py \
+    --normalization GCN \
+    --l1-reg 0.0 \
+    --l2-reg 0.0 \
+    --batch-size 32 \
+    --lr 0.03 \
+    --final-lr 0.00012 \
+    --max-iter 100000 \
+    --UDA \
+    --UDA-CUTOUT \
+    --AutoAugment \
+    --optimizer SGD \
+    --lr-decay cosine \
+    --name autoaugment_code_base_UDA_SGD_COSINELR_AutoAugment \
+    >> autoaugment_code_base_UDA_SGD_COSINELR_AutoAugment.log &

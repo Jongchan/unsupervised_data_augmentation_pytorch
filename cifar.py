@@ -114,20 +114,42 @@ class CIFAR10(data.Dataset):
         elif self.args.UDA_CUTOUT:
             print ("USE UDA CUTOUT")
             self.autoaugment = transforms.Compose([
-                autoaugment.CIFAR10Policy(),
+                autoaugment.CIFAR10Policy() if not args.cifar10_policy_all else autoaugment.CIFAR10PolicyAll(),
                 transforms.ToTensor(),
                 Cutout(n_holes=1, length=16),
                 transforms.ToPILImage(),
                 ])
         else:
             self.autoaugment = transforms.Compose([
-                autoaugment.CIFAR10Policy(),
+                autoaugment.CIFAR10Policy() if not args.cifar10_policy_all else autoaugment.CIFAR10PolicyAll(),
                 ])
 
-        if self.args.AutoAugment:
+        if self.args.AutoAugment and not uda:
+            print ("labeled set autoaugment")
             self.autoaugment_labeled = transforms.Compose([
-                autoaugment.CIFAR10Policy(),
+                autoaugment.CIFAR10Policy() if not args.cifar10_policy_all else autoaugment.CIFAR10PolicyAll(),
                 ])
+        elif self.args.AutoAugment_cutout_only and not uda:
+            print ("labeled set autoaugment (cutout only)")
+            self.autoaugment_labeled = transforms.Compose([
+                transforms.ToTensor(),
+                Cutout(n_holes=1, length=16),
+                transforms.ToPILImage(),
+                ])
+        elif self.args.AutoAugment_all and not uda:
+            print ("labeled set autoaugment (all)")
+            self.autoaugment_labeled = transforms.Compose([
+                autoaugment.CIFAR10Policy() if not args.cifar10_policy_all else autoaugment.CIFAR10PolicyAll(),
+                transforms.ToTensor(),
+                Cutout(n_holes=1, length=16),
+                transforms.ToPILImage(),
+                ])
+        else:
+            print ("labeled set no autoaugment")
+            self.autoaugment_labeled = None
+
+
+
 
         if self.train:
             self.transform = transforms.Compose([
@@ -231,7 +253,7 @@ class CIFAR10(data.Dataset):
             img, target = self.data[index], self.targets[index] # image with shape 32,32,3
             img = Image.fromarray(img) # PIL image
             if self.train:#LABELED
-                if self.args.AutoAugment:
+                if self.autoaugment_labeled is not None:
                     img = self.autoaugment_labeled(img)
                 img = self.transform(img) # torch tensor shape 3,32,32
             else:#TEST

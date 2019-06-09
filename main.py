@@ -25,11 +25,12 @@ parser.add_argument('--arch',               type=str,       default='WRN-28-2')
 parser.add_argument('--name',               type=str,       required=True)
 
 # HYPER PARAMS
+parser.add_argument('--optimizer',          type=str,       default='Adam')
 parser.add_argument('--dropout-rate',       type=float,     default=0.3)
-parser.add_argument('--lr',                 type=float,     default=3e-3)
+parser.add_argument('--lr',                 type=float,     default=3e-2)
 parser.add_argument('--final-lr',           type=float,     default=1.2e-4)
 parser.add_argument('--batch-size',         type=int,       default=100)
-parser.add_argument('--l1-reg',             type=float,     default=1e-6)
+parser.add_argument('--l1-reg',             type=float,     default=0.0)
 parser.add_argument('--l2-reg',             type=float,     default=1e-4)
 parser.add_argument('--lr-decay-rate',      type=float,     default=0.2)
 parser.add_argument('--max-iter',           type=int,       default=100000)
@@ -40,14 +41,19 @@ parser.add_argument('--num-workers',        type=int,       default=20)
 parser.add_argument('--print-freq',         type=int,       default=20)
 parser.add_argument('--split',              type=int,       default=0)
 parser.add_argument('--eval-iter',          type=int,       default=2000)
+parser.add_argument('--nesterov',   action='store_true')
 
 parser.add_argument('--AutoAugment',                action='store_true')
+parser.add_argument('--AutoAugment-cutout-only',                action='store_true')
+parser.add_argument('--AutoAugment-all',                action='store_true')
 parser.add_argument('--UDA',                action='store_true')
 parser.add_argument('--UDA-CUTOUT',                action='store_true')
 parser.add_argument('--use-cutout',         action='store_true')
 parser.add_argument('--TSA',                type=str,       default=None)
 parser.add_argument('--batch-size-unsup',   type=int,       default=960)
 parser.add_argument('--unsup-loss-weight',  type=float,     default=1.0)
+parser.add_argument('--cifar10-policy-all', action='store_true')
+parser.add_argument('--clip-grad-norm',	default=-1, type=float)
 
 def TSA_th(cur_step):
     global args
@@ -126,8 +132,17 @@ def main():
         model = torch.nn.DataParallel(model.cuda())
     else:
         raise NotImplementedError('arch {} is not implemented'.format(args.arch))
+    if args.optimizer == 'Adam':
+        print ("use Adam optimizer")
+        optimizer = torch.optim.Adam( model.parameters(), lr=args.lr, weight_decay=args.l2_reg )
+    elif args.optimizer == 'SGD':
+        print ("use SGD optimizer")
+        optimizer = torch.optim.SGD( model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.l2_reg, nesterov=args.nesterov)
 
-    optimizer = torch.optim.Adam( model.parameters(), lr=args.lr, weight_decay=args.l2_reg )
+    if args.lr_decay=='cosine':
+        print ("use cosine lr scheduler")
+        global scheduler
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.max_iter, eta_min=args.final_lr)
 
     global batch_time, losses_sup, losses_unsup, top1, losses_l1, losses_unsup
     batch_time, losses_sup, losses_unsup, top1, losses_l1, losses_unsup = AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()
@@ -197,15 +212,19 @@ def train(model, data_iterator, optimizer, iteration, data_iterator_uda=None):
 
     
     # Loss calculation with TSA
-    num_classes = 10 if args.dataset=='cifar10' else 100
-    target_onehot = torch.FloatTensor( input.size(0), num_classes ).cuda()
-    target_onehot.zero_()
-    target_onehot.scatter_(1, target.unsqueeze(1), 1)
-    output_softmax = torch.nn.functional.softmax( output, dim=1 ).detach()
-    gt_softmax = (target_onehot * output_softmax).sum(dim=1)
-    loss_mask = (gt_softmax <= tsa_th).float()
-    loss_sup = torch.sum( torch.nn.functional.cross_entropy(output, target, reduction='none') * loss_mask ) / (loss_mask.sum()+1e-6)
+    if args.TSA is None:
+        loss_sup = torch.nn.functional.cross_entropy(output, target, reduction='mean')
+    else:
+        num_classes = 10 if args.dataset=='cifar10' else 100
+        target_onehot = torch.FloatTensor( input.size(0), num_classes ).cuda()
+        target_onehot.zero_()
+        target_onehot.scatter_(1, target.unsqueeze(1), 1)
+        output_softmax = torch.nn.functional.softmax( output, dim=1 ).detach()
+        gt_softmax = (target_onehot * output_softmax).sum(dim=1)
+        loss_mask = (gt_softmax <= tsa_th).float()
+        loss_sup = torch.sum( torch.nn.functional.cross_entropy(output, target, reduction='none') * loss_mask ) / (loss_mask.sum()+1e-6)
     #loss_sup = torch.nn.functional.cross_entropy(output, target)
+    #kl_div_loss = torch.nn.KLDivLoss(reduction='batchmean').cuda()
     if args.UDA:
         input_unsup, input_unsup_aug = next(data_iterator_uda)
         input_unsup = input_unsup.cuda()
@@ -218,6 +237,7 @@ def train(model, data_iterator, optimizer, iteration, data_iterator_uda=None):
             output_unsup = model(input_unsup)
         output_unsup_aug = model(input_unsup_aug)
 
+        #import ipdb;ipdb.set_trace()
         loss_unsup = torch.nn.functional.kl_div( 
                                 torch.nn.functional.log_softmax(output_unsup_aug, dim=1), 
                                 torch.nn.functional.softmax(output_unsup, dim=1).detach(),
@@ -245,6 +265,8 @@ def train(model, data_iterator, optimizer, iteration, data_iterator_uda=None):
         loss_all = loss_sup + loss_unsup
     else:
         loss_all = loss_sup
+    if args.clip_grad_norm > 0:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
     loss_all.backward()
     optimizer.step()
 
@@ -252,7 +274,7 @@ def train(model, data_iterator, optimizer, iteration, data_iterator_uda=None):
     losses_sup.update( loss_sup.data.item(), input.size(0))
     losses_l1.update( loss_l1.data.item(), input.size(0))
     if loss_unsup is not None:
-        losses_unsup.update( loss_unsup.data.item(), input.size(0))
+        losses_unsup.update( loss_unsup.data.item(), args.batch_size_unsup)
     batch_time.update(time.time()-t)
 
 def test(model, val_loader):
@@ -318,12 +340,18 @@ def adjust_learning_rate(optimizer, it):
         lr = args.lr
         for lr_decay_at in args.lr_decay_at:
             lr *= args.lr_decay_rate ** int(it >= int(lr_decay_at) )
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
     elif args.lr_decay=='linear':
         lr = args.final_lr + (args.lr-args.final_lr) * float(args.max_iter - it) / float(args.max_iter)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+    elif args.lr_decay=='cosine':
+        global scheduler
+        scheduler.step()
+        lr = scheduler.get_lr()
     else:
         raise ValueError('unknown lr decay method {}'.format(args.lr_decay))
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
     return lr
 
 def accuracy(output, target, topk=(1,)):
