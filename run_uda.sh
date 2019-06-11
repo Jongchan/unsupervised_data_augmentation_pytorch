@@ -84,16 +84,40 @@
 #    --name UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.00001 \
 #    >> UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.00001.log &
 
+#CUDA_VISIBLE_DEVICES=4,5 \
+#    python main.py \
+#    --normalization GCN --batch-size 32 --l1-reg 0.00001 --l2-reg 0.0005 --final-lr 0.00012 --max-iter 200000 --lr 0.03 --optimizer SGD --lr-decay cosine --nesterov \
+#    --UDA --cifar10-policy-all --UDA-CUTOUT \
+#    --name UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.00001_200K \
+#    >> UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.00001_200K.log &
+
+#CUDA_VISIBLE_DEVICES=6,7 \
+#    python main.py \
+#    --normalization GCN --batch-size 32 --l1-reg 0.000001 --l2-reg 0.0005 --final-lr 0.00012 --max-iter 100000 --lr 0.03 --optimizer SGD --lr-decay cosine --nesterov \
+#    --UDA --cifar10-policy-all --UDA-CUTOUT \
+#    --name UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.000001 \
+#    >> UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.000001.log &
+
+#CUDA_VISIBLE_DEVICES=4,5 \
+#    python main.py \
+#    --normalization GCN --batch-size 32 --l1-reg 0 --l2-reg 0.0005 --final-lr 0.00012 --max-iter 100000 --lr 0.03 --optimizer SGD --lr-decay cosine --nesterov \
+#    --dropout-rate 0.0 \
+#    --UDA --cifar10-policy-all --UDA-CUTOUT \
+#    --name UDA_AutoAugment_FULL_Cutout_no_dropout \
+#    >> UDA_AutoAugment_FULL_Cutout_l2_no_dropout.log &
+
 CUDA_VISIBLE_DEVICES=4,5 \
     python main.py \
-    --normalization GCN --batch-size 32 --l1-reg 0.00001 --l2-reg 0.0005 --final-lr 0.00012 --max-iter 200000 --lr 0.03 --optimizer SGD --lr-decay cosine --nesterov \
+    --normalization GCN --batch-size 32 --l1-reg 0 --l2-reg 0.0005 --final-lr 0.00012 --max-iter 100000 --lr 0.03 --optimizer SGD --lr-decay cosine --nesterov \
+    --dropout-rate 0.1 \
     --UDA --cifar10-policy-all --UDA-CUTOUT \
-    --name UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.00001_200K \
-    >> UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.00001_200K.log &
+    --name UDA_AutoAugment_FULL_Cutout_dropout_0.1 \
+    >> UDA_AutoAugment_FULL_Cutout_dropout_0.1.log &
 
-CUDA_VISIBLE_DEVICES=6,7 \
+CUDA_VISIBLE_DEVICES=4,5 \
     python main.py \
-    --normalization GCN --batch-size 32 --l1-reg 0.000001 --l2-reg 0.0005 --final-lr 0.00012 --max-iter 100000 --lr 0.03 --optimizer SGD --lr-decay cosine --nesterov \
+    --normalization GCN --batch-size 32 --l1-reg 0 --l2-reg 0.0005 --final-lr 0.00012 --max-iter 100000 --lr 0.03 --optimizer SGD --lr-decay cosine --nesterov \
+    --dropout-rate 0.2 \
     --UDA --cifar10-policy-all --UDA-CUTOUT \
-    --name UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.000001 \
-    >> UDA_AutoAugment_FULL_Cutout_l2_reg_0.0005_l1_reg_0.000001.log &
+    --name UDA_AutoAugment_FULL_Cutout_dropout_0.2 \
+    >> UDA_AutoAugment_FULL_Cutout_dropout_0.2.log &
