@@ -262,9 +262,9 @@ def train(model, data_iterator, optimizer, iteration, data_iterator_uda=None):
     #loss_sup.backward()
     #loss_l1.backward()
     if loss_unsup is not None:
-        loss_all = loss_sup + loss_unsup
+        loss_all = loss_sup + loss_unsup + loss_l1
     else:
-        loss_all = loss_sup
+        loss_all = loss_sup + loss_l1
     if args.clip_grad_norm > 0:
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip_grad_norm)
     loss_all.backward()
