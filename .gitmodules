@@ -1,0 +1,4 @@
+[submodule "AutoAugment"]
+	path = AutoAugment
+	url = https://github.com/Jongchan/AutoAugment.git
+	branch = master
