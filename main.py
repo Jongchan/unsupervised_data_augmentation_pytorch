@@ -54,6 +54,9 @@ parser.add_argument('--batch-size-unsup',   type=int,       default=960)
 parser.add_argument('--unsup-loss-weight',  type=float,     default=1.0)
 parser.add_argument('--cifar10-policy-all', action='store_true')
 parser.add_argument('--clip-grad-norm',	default=-1, type=float)
+parser.add_argument('--leakiness',type=float,default=0.01)
+parser.add_argument('--add-labeled-to-unlabeled', action='store_true')
+parser.add_argument('--warmup-steps', type=int, default=0)
 
 def TSA_th(cur_step):
     global args
@@ -336,22 +339,26 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 def adjust_learning_rate(optimizer, it):
-    if args.lr_decay=='step':
-        lr = args.lr
-        for lr_decay_at in args.lr_decay_at:
-            lr *= args.lr_decay_rate ** int(it >= int(lr_decay_at) )
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
-    elif args.lr_decay=='linear':
-        lr = args.final_lr + (args.lr-args.final_lr) * float(args.max_iter - it) / float(args.max_iter)
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
-    elif args.lr_decay=='cosine':
-        global scheduler
-        scheduler.step()
-        lr = scheduler.get_lr()
+    if args.warmup_steps > 0 and args.warmup_steps > it:
+        # do warm up lr
+        lr = float(it) / float(args.warmup_steps) * args.lr
     else:
-        raise ValueError('unknown lr decay method {}'.format(args.lr_decay))
+        if args.lr_decay=='step':
+            lr = args.lr
+            for lr_decay_at in args.lr_decay_at:
+                lr *= args.lr_decay_rate ** int(it >= int(lr_decay_at) )
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
+        elif args.lr_decay=='linear':
+            lr = args.final_lr + (args.lr-args.final_lr) * float(args.max_iter - it) / float(args.max_iter)
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
+        elif args.lr_decay=='cosine':
+            global scheduler
+            scheduler.step()
+            lr = scheduler.get_lr()
+        else:
+            raise ValueError('unknown lr decay method {}'.format(args.lr_decay))
     return lr
 
 def accuracy(output, target, topk=(1,)):

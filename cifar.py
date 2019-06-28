@@ -95,7 +95,7 @@ class CIFAR10(data.Dataset):
         'md5': '5ff9c542aee3614f3951f8cda6e48888',
     }
 
-    def __init__(self, args, train=True, uda=False, normalize=False):
+    def __init__(self, args, train=True, uda=False, normalize=False, add_labeled_to_unlabeled=False):
 
         #super(CIFAR10, self).__init__(root)
         self.normalize = normalize
@@ -196,8 +196,13 @@ class CIFAR10(data.Dataset):
                 label_map = [int(label) for label in label_map]
          
             if self.uda:
-                self.data       = np.delete( self.data, label_map, axis=0 )
-                self.targets    = None
+                if add_labeled_to_unlabeled:
+                    print ("UDA with labeled set")
+                    self.targets    = None
+                else:
+                    print ("UDA without labeled set")
+                    self.data       = np.delete( self.data, label_map, axis=0 )
+                    self.targets    = None
             else:
                 self.data       = np.take(self.data, label_map, axis=0)
                 self.targets    = np.take(self.targets, label_map, axis=0)
