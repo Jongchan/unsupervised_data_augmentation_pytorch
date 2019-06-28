@@ -30,27 +30,23 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet18)')
-parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=20, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=90, type=int, metavar='N',
-                    help='number of total epochs to run')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
-                    help='manual epoch number (useful on restarts)')
+parser.add_argument('--max-iter', default=40000, type=int)
+parser.add_argument('--print-freq', default=500, type=int)
 parser.add_argument('-bu', '--batch-size-unlabeled', default=0, type=int)
-parser.add_argument('-b',  '--batch-size', default=256, type=int,
+parser.add_argument('-b',  '--batch-size', default=512, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+parser.add_argument('--lr', '--learning-rate', default=0.3, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)',
                     dest='weight_decay')
-parser.add_argument('-p', '--print-freq', default=10, type=int,
-                    metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
@@ -146,7 +142,7 @@ def main_worker(gpu, ngpus_per_node, args):
                                      std=[0.229, 0.224, 0.225])
 
     train_labeled_dataset = ImageNet(
-        traindir,
+        traindir, args,
         transforms.Compose([
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
@@ -157,7 +153,7 @@ def main_worker(gpu, ngpus_per_node, args):
         )
 
     train_unlabeled_dataset = ImageNet(
-        traindir,
+        traindir, args,
         transforms.Compose([
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
@@ -189,6 +185,145 @@ def main_worker(gpu, ngpus_per_node, args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
+    entropy_criterion = HLoss()
+
+    iter_sup = iter(train_labeled_loader)
+    if train_unlabeled_loader is None:
+        iter_unsup = None
+    else:
+        iter_unsup = iter(train_unlabeled_loader)
+
+    model.train()
+    for train_iter in range(args.max_iter):
+
+        meters = initialize_meters()
+
+        lr = adjust_learning_rate(optimizer, train_iter + 1)
+
+        train_iter(, meters)
+
+        if (train_iter+1) % args.print_freq == 0:
+            print('ITER: [{0}/{1}]\t'
+                  'Data time {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                  'HLoss {h_loss.val:.4f} ({h_loss.avg:.4f})\t'
+                  'Unsup Loss {unsup_loss.val:.4f} ({unsup_loss.avg:.4f})\t'
+                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'
+                  'Prec@5 {top5.val:.3f} ({top5.avg:.3f})\t'
+                  'Learning rate {2}'.format(
+                      train_iter, args.max_iter, lr, 
+                      data_time=meters['data_time'],
+                      batch_time=meters['batch_time'],
+                      loss=meters['losses'], 
+                      h_loss=meters['losses_entropy'],
+                      unsup_loss=meters['losses_unsup'],
+                      top1=meters['top1'], 
+                      top5=meters['top5']))
+        if (train_iter+1)%args.eval_iter:
+            # evaluate on validation set
+            acc1 = validate(val_loader, model, criterion, args)
+         
+            # remember best acc@1 and save checkpoint
+            is_best = acc1 > best_acc1
+            best_acc1 = max(acc1, best_acc1)
+         
+            save_checkpoint({
+                'iter': train_iter + 1,
+                'arch': args.arch,
+                'state_dict': model.state_dict(),
+                'best_acc1': best_acc1,
+                'optimizer' : optimizer.state_dict(),
+            }, is_best, args.save_dir)
+            model.train()
+
+def initialize_meters():
+    batch_time = AverageMeter('Time', ':6.3f')
+    data_time = AverageMeter('Data', ':6.3f')
+    losses = AverageMeter('Loss', ':.4e')
+    losses_entropy = AverageMeter('Loss entropy', ':.4e')
+    losses_unsup = AverageMeter('Loss unsup', ':.4e')
+    top1 = AverageMeter('Acc@1', ':6.2f')
+    top5 = AverageMeter('Acc@5', ':6.2f')
+                             top5, prefix="TRAIN")
+    return {'batch_time':batch_time,
+            'data_time':data_time,
+            'losses':losses,
+            'losses_entropy':losses_entropy,
+            'losses_unsup':losses_unsup,
+            'top1':top1,
+            'top5':top5}
+
+def train_iter(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, meters):
+
+    t0 = time.time()
+    input, target = next(iter_sup)
+    input, target = input.cuda(), target.cuda()
+    data_time = time.time()-t0
+
+    output = model(input)
+
+    loss_all = 0
+    loss_cls = criterion(output, target)
+    meters['losses'].update(loss_cls.item(), images.size(0))
+    loss_all += loss_cls
+
+    if iter_unsup is not None:
+        '''
+            LOSSES for unlabeled samples
+        '''
+        #TODO 
+        t1 = time.time()
+        images_unlabeled, images_unlabeled_aug = next(iter_unsup)
+        images_unlabeled, images_unlabeled_aug = images_unlabeled.cuda(), images_unlabeled_aug.cuda()
+        data_time += time.time() - t1
+    
+        with torch.no_grad():
+            output_unlabeled = model(images_unlabeled)
+        output_unlabeled_aug = model(images_unlabeled_aug)
+
+        # Technique 1: entropy loss for augmented images
+        entropy_weight = 1.0
+        loss_entropy = entropy_weight * entropy_criterion(output_unlabeled_aug)
+        loss_all += loss_entropy
+        meters['losses_entropy'].update( loss_entropy.item(), images_unlabeled.size(0) )
+ 
+        # Technique 2: Softmax temperature control for unsupervised loss
+        temperature = 0.4
+        unsup_loss_weight = 1.0
+        loss_unsup = torch.nn.functional.kl_div( 
+                                torch.nn.functional.log_softmax(output_unlabeled_aug, dim=1), 
+                                torch.nn.functional.softmax(output_unlabeled / temperature, dim=1).detach(),
+                                reduction='none')
+ 
+        # Technique 3: confidence-based masking
+        threshold = 0.5
+        max_y_unlabeled = torch.max( torch.nn.functional.softmax( output_unlabeled / temperature, dim=1 ), 1, keepdim=True )
+        mask = (max_y_unlabeled > threshold).type(torch.cuda.FloatTensor)
+ 
+        loss_unsup = torch.sum(loss_unsup * mask) / mask.mean()
+ 
+        loss_unsup = loss_unsup * unsup_loss_weight
+        loss_all += loss_unsup
+        meters['losses_unsup'].update( loss_unsup.item(), images_unlabeled.size(0) )
+    
+
+    # measure accuracy and record loss
+    acc1, acc5 = accuracy(output, target, topk=(1, 5))
+    meters['top1'].update(acc1[0], images.size(0))
+    meters['top5'].update(acc5[0], images.size(0))
+
+    # compute gradient and do SGD step
+
+    optimizer.zero_grad()
+    loss_all.backward()
+    optimizer.step()
+
+    # measure elapsed time
+    meters['batch_time'].update(time.time() - t0 - data_time)
+
+'''
+if True:
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
 
@@ -209,6 +344,7 @@ def main_worker(gpu, ngpus_per_node, args):
             'best_acc1': best_acc1,
             'optimizer' : optimizer.state_dict(),
         }, is_best, args.save_dir)
+'''
 
 
 def train(train_labeled_loader, train_unlabeled_loader, model, criterion, optimizer, epoch, args):
