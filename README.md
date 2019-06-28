@@ -1,5 +1,5 @@
-# ssl-pytorch
-A PyTorch implementation for Unsupervised Data Augmentation
+# Unsupervised Data Augmentation (UDA)
+A PyTorch implementation for Unsupervised Data Augmentation.
 
 ## Disclaimer
 
