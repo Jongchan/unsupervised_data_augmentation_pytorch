@@ -3,7 +3,7 @@ import torch
 from PIL import Image
 import os
 import os.path
-
+import random 
 IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm']
 
 
@@ -80,7 +80,7 @@ def load_db(db_path, class_to_idx):
 from AutoAugment.autoaugment import ImageNetPolicy
 class ImageNet(data.Dataset):
 
-    def __init__(self, root, transform=None, target_transform=None,
+    def __init__(self, root, args, transform=None, target_transform=None,
                  loader=default_loader, db_path='./data_split/labeled_images_0.10.pth', is_unlabeled=False):
         classes, class_to_idx = find_classes(root)
         #imgs = make_dataset(root, class_to_idx)
@@ -99,6 +99,16 @@ class ImageNet(data.Dataset):
         self.is_unlabeled = is_unlabeled
         self.autoaugment = ImageNetPolicy()
 
+        indices = [i for i in range(len(imgs))]
+        self.random_indices = []
+        self.total_train_count = args.batch_size * args.max_iters
+        for _ in range(self.total_train_count // len(indices)):
+            self.random_indices += indices
+        remainder_count = self.total_train_count - len(self.random_indices)
+        random.shuffle(indices)
+        self.random_indices += indices[:remainder_count]
+        random.shuffle(self.random_indices)
+
     def __getitem__(self, index):
         """
         Args:
@@ -107,7 +117,8 @@ class ImageNet(data.Dataset):
         Returns:
             tuple: (image, target) where target is class_index of the target class.
         """
-        path, target = self.imgs[index]
+        random_index = self.random_indices[index]
+        path, target = self.imgs[random_index]
         img = self.loader(path)
 
         if self.is_unlabeled:
@@ -125,4 +136,4 @@ class ImageNet(data.Dataset):
             return img, target
 
     def __len__(self):
-        return len(self.imgs)
+        return self.total_train_count
