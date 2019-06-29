@@ -33,9 +33,11 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
 parser.add_argument('-j', '--workers', default=20, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--max-iter', default=40000, type=int)
+parser.add_argument('--lr-drop-iter', nargs="+", default=[40000//3, 40000*2//3, 40000*8//9])
 parser.add_argument('--eval-iter', default=500, type=int)
 parser.add_argument('--print-freq', default=10, type=int)
 parser.add_argument('--warmup', action='store_true')
+parser.add_argument('--warmup-iter', type=int, default=40000*5//90)
 parser.add_argument('-bu', '--batch-size-unlabeled', default=0, type=int)
 parser.add_argument('-b',  '--batch-size', default=512, type=int,
                     metavar='N',
@@ -539,16 +541,17 @@ class ProgressMeter(object):
 
 def adjust_learning_rate(optimizer, train_iter, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    if train_iter <= args.max_iter * 5 / 90 and args.warmup:
+parser.add_argument('--lr-drop-iter', nargs="+", default=[40000//3, 40000*2//3])
+    if train_iter <= args.warmup_iter and args.warmup:
         # warmup
         lr = args.lr * ( float(train_iter) / float(args.max_iter * 5 / 90) )
-    elif train_iter < args.max_iter * 1 / 3:
+    elif train_iter < args.lr_drop_iter[0]:
         lr = args.lr
-    elif train_iter >= args.max_iter * 1 / 3 and train_iter < args.max_iter * 2 / 3:
+    elif train_iter >= args.lr_drop_iter[0] and train_iter < args.lr_drop_iter[1]:
         lr = args.lr * 0.1
-    elif train_iter >= args.max_iter * 2 / 3 and train_iter < args.max_iter * 8 / 9:
+    elif train_iter >= args.lr_drop_iter[1] and train_iter < args.lr_drop_iter[2]:
         lr = args.lr * 0.01
-    elif train_iter >= args.max_iter * 8 / 9:
+    elif train_iter >= args.lr_drop_iter[2]:
         lr = args.lr * 0.001
 
     for param_group in optimizer.param_groups:
