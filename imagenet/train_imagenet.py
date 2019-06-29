@@ -33,7 +33,9 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
 parser.add_argument('-j', '--workers', default=20, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--max-iter', default=40000, type=int)
-parser.add_argument('--print-freq', default=500, type=int)
+parser.add_argument('--eval-iter', default=500, type=int)
+parser.add_argument('--print-freq', default=10, type=int)
+parser.add_argument('--warmup', action='store_true')
 parser.add_argument('-bu', '--batch-size-unlabeled', default=0, type=int)
 parser.add_argument('-b',  '--batch-size', default=512, type=int,
                     metavar='N',
@@ -194,13 +196,12 @@ def main_worker(gpu, ngpus_per_node, args):
         iter_unsup = iter(train_unlabeled_loader)
 
     model.train()
+    meters = initialize_meters()
     for train_iter in range(args.max_iter):
 
-        meters = initialize_meters()
+        lr = adjust_learning_rate(optimizer, train_iter + 1, args)
 
-        lr = adjust_learning_rate(optimizer, train_iter + 1)
-
-        train_iter(, meters)
+        train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, meters)
 
         if (train_iter+1) % args.print_freq == 0:
             print('ITER: [{0}/{1}]\t'
@@ -220,7 +221,7 @@ def main_worker(gpu, ngpus_per_node, args):
                       unsup_loss=meters['losses_unsup'],
                       top1=meters['top1'], 
                       top5=meters['top5']))
-        if (train_iter+1)%args.eval_iter:
+        if (train_iter+1) % args.eval_iter == 0:
             # evaluate on validation set
             acc1 = validate(val_loader, model, criterion, args)
          
@@ -236,6 +237,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
             }, is_best, args.save_dir)
             model.train()
+            meters = initialize_meters()
 
 def initialize_meters():
     batch_time = AverageMeter('Time', ':6.3f')
@@ -245,7 +247,6 @@ def initialize_meters():
     losses_unsup = AverageMeter('Loss unsup', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
-                             top5, prefix="TRAIN")
     return {'batch_time':batch_time,
             'data_time':data_time,
             'losses':losses,
@@ -254,14 +255,14 @@ def initialize_meters():
             'top1':top1,
             'top5':top5}
 
-def train_iter(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, meters):
+def train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, meters):
 
     t0 = time.time()
-    input, target = next(iter_sup)
-    input, target = input.cuda(), target.cuda()
+    images, target = next(iter_sup)
+    images, target = images.cuda(), target.cuda()
     data_time = time.time()-t0
 
-    output = model(input)
+    output = model(images)
 
     loss_all = 0
     loss_cls = criterion(output, target)
@@ -346,7 +347,7 @@ if True:
         }, is_best, args.save_dir)
 '''
 
-
+'''
 def train(train_labeled_loader, train_unlabeled_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
@@ -385,9 +386,6 @@ def train(train_labeled_loader, train_unlabeled_loader, model, criterion, optimi
         loss_all += loss_cls
 
         if train_unlabeled_loader is not None:
-            '''
-                LOSSES for unlabeled samples
-            '''
             #TODO 
             images_unlabeled, images_unlabeled_aug = next(train_unlabeled_iter)
     
@@ -438,6 +436,7 @@ def train(train_labeled_loader, train_unlabeled_loader, model, criterion, optimi
 
         if i % args.print_freq == 0:
             progress.print(i)
+'''
 
 class HLoss(nn.Module):
     def __init__(self):
@@ -538,11 +537,24 @@ class ProgressMeter(object):
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
-def adjust_learning_rate(optimizer, epoch, args):
+def adjust_learning_rate(optimizer, train_iter, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    lr = args.lr * (0.1 ** (epoch // 30))
+    if train_iter <= args.max_iter * 5 / 90 and args.warmup:
+        # warmup
+        lr = args.lr * ( float(train_iter) / float(args.max_iter * 5 / 90) )
+    elif train_iter < args.max_iter * 1 / 3:
+        lr = args.lr
+    elif train_iter >= args.max_iter * 1 / 3 and train_iter < args.max_iter * 2 / 3:
+        lr = args.lr * 0.1
+    elif train_iter >= args.max_iter * 2 / 3 and train_iter < args.max_iter * 8 / 9:
+        lr = args.lr * 0.01
+    elif train_iter >= args.max_iter * 8 / 9:
+        lr = args.lr * 0.001
+
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+
+    return lr
 
 
 def accuracy(output, target, topk=(1,)):
