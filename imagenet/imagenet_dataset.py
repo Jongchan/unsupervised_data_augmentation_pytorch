@@ -101,7 +101,7 @@ class ImageNet(data.Dataset):
 
         indices = [i for i in range(len(imgs))]
         self.random_indices = []
-        self.total_train_count = args.batch_size * args.max_iters
+        self.total_train_count = args.batch_size * args.max_iter
         for _ in range(self.total_train_count // len(indices)):
             self.random_indices += indices
         remainder_count = self.total_train_count - len(self.random_indices)
