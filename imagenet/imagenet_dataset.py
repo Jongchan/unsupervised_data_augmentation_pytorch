@@ -77,7 +77,7 @@ def load_db(db_path, class_to_idx):
             images.append( (image_path, class_to_idx[key]) )
     return images
 
-from AutoAugment.autoaugment import ImageNetPolicy
+from autoaugment import ImageNetPolicy
 class ImageNet(data.Dataset):
 
     def __init__(self, root, args, transform=None, target_transform=None,
