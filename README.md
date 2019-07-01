@@ -19,5 +19,6 @@ A PyTorch implementation for Unsupervised Data Augmentation.
 ## MISC
 
 - CIFAR10 labeled set is from AutoAugment policy search subset.
+- CIFAR10 AutoAugment policy includes full set (95 policies), rather than 25 policies.
 - ImageNet labeled set is randomly selected 10% for each class.
 - ImageNet baseline settings are from [S4L: Self-Supervised Semi-Supervised Learning](https://arxiv.org/abs/1905.03670).
