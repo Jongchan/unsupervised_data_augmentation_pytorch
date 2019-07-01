@@ -68,6 +68,7 @@ best_acc1 = 0
 
 def main():
     args = parser.parse_args()
+    args.lr_drop_iter = [int(val) for val in args.lr_drop_iter]
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -324,6 +325,7 @@ def train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, 
 
     # measure elapsed time
     meters['batch_time'].update(time.time() - t0 - data_time)
+    meters['data_time'].update(data_time)
 
 '''
 if True:
@@ -541,10 +543,9 @@ class ProgressMeter(object):
 
 def adjust_learning_rate(optimizer, train_iter, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-parser.add_argument('--lr-drop-iter', nargs="+", default=[40000//3, 40000*2//3])
     if train_iter <= args.warmup_iter and args.warmup:
         # warmup
-        lr = args.lr * ( float(train_iter) / float(args.max_iter * 5 / 90) )
+        lr = args.lr * ( float(train_iter) / float(args.warmup_iter) )
     elif train_iter < args.lr_drop_iter[0]:
         lr = args.lr
     elif train_iter >= args.lr_drop_iter[0] and train_iter < args.lr_drop_iter[1]:
