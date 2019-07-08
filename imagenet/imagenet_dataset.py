@@ -26,25 +26,6 @@ def find_classes(dir):
     class_to_idx = {classes[i]: i for i in range(len(classes))}
     return classes, class_to_idx
 
-'''
-def make_dataset(dir, class_to_idx):
-    images = []
-    dir = os.path.expanduser(dir)
-    for target in sorted(os.listdir(dir)):
-        d = os.path.join(dir, target)
-        if not os.path.isdir(d):
-            continue
-
-        for root, _, fnames in sorted(os.walk(d)):
-            for fname in sorted(fnames):
-                if is_image_file(fname):
-                    path = os.path.join(root, fname)
-                    item = (path, class_to_idx[target])
-                    images.append(item)
-
-    return images
-'''
-
 
 def pil_loader(path):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
@@ -99,15 +80,15 @@ class ImageNet(data.Dataset):
         self.is_unlabeled = is_unlabeled
         self.autoaugment = ImageNetPolicy()
 
-        indices = [i for i in range(len(imgs))]
-        self.random_indices = []
-        self.total_train_count = args.batch_size * args.max_iter
-        for _ in range(self.total_train_count // len(indices)):
-            self.random_indices += indices
-        remainder_count = self.total_train_count - len(self.random_indices)
-        random.shuffle(indices)
-        self.random_indices += indices[:remainder_count]
-        random.shuffle(self.random_indices)
+        self.indices = [i for i in range(len(imgs))]
+        random.shuffle(self.indices)
+        if self.is_unlabeled:
+            self.total_train_count = args.batch_size_unlabeled * args.max_iter * args.unlabeled_iter
+        else:
+            self.total_train_count = args.batch_size * args.max_iter
+
+        print ("sample count {}".format(len(self.indices)))
+        print ("total sample count {}".format(self.total_train_count))
 
     def __getitem__(self, index):
         """
@@ -117,7 +98,9 @@ class ImageNet(data.Dataset):
         Returns:
             tuple: (image, target) where target is class_index of the target class.
         """
-        random_index = self.random_indices[index]
+        #if self.is_unlabeled:
+        #    print ("reading index {}".format(index))
+        random_index = self.indices[index%len(self.indices)]
         path, target = self.imgs[random_index]
         img = self.loader(path)
 

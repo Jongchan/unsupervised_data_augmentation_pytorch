@@ -39,6 +39,7 @@ parser.add_argument('--print-freq', default=10, type=int)
 parser.add_argument('--warmup', action='store_true')
 parser.add_argument('--warmup-iter', type=int, default=40000*5//90)
 parser.add_argument('-bu', '--batch-size-unlabeled', default=0, type=int)
+parser.add_argument('-ui', '--unlabeled-iter', default=30, type=int)
 parser.add_argument('-b',  '--batch-size', default=512, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
@@ -175,7 +176,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     if args.batch_size_unlabeled > 0:
         train_unlabeled_loader = torch.utils.data.DataLoader(
-            train_unlabeled_dataset, batch_size=args.batch_size_unlabeled, shuffle=True,
+            train_unlabeled_dataset, batch_size=args.batch_size_unlabeled, shuffle=False,
             num_workers=args.workers, pin_memory=True, sampler=None)
     else:
         train_unlabeled_loader = None
@@ -204,7 +205,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
         lr = adjust_learning_rate(optimizer, train_iter + 1, args)
 
-        train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, meters)
+        train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, meters, args)
 
         if (train_iter+1) % args.print_freq == 0:
             print('ITER: [{0}/{1}]\t'
@@ -258,7 +259,7 @@ def initialize_meters():
             'top1':top1,
             'top5':top5}
 
-def train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, meters):
+def train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, meters, args):
 
     t0 = time.time()
     images, target = next(iter_sup)
@@ -270,46 +271,55 @@ def train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, 
     loss_all = 0
     loss_cls = criterion(output, target)
     meters['losses'].update(loss_cls.item(), images.size(0))
-    loss_all += loss_cls
+    loss_cls.backward()
+    loss_all += loss_cls.item()
 
     if iter_unsup is not None:
         '''
             LOSSES for unlabeled samples
         '''
         #TODO 
-        t1 = time.time()
-        images_unlabeled, images_unlabeled_aug = next(iter_unsup)
-        images_unlabeled, images_unlabeled_aug = images_unlabeled.cuda(), images_unlabeled_aug.cuda()
-        data_time += time.time() - t1
+        #images_unlabeled_all, images_unlabeled_all_aug = next(iter_unsup)
+        #images_unlabeled_all, images_unlabeled_all_aug = images_unlabeled_all.cuda(), images_unlabeled_all_aug.cuda()
     
-        with torch.no_grad():
-            output_unlabeled = model(images_unlabeled)
-        output_unlabeled_aug = model(images_unlabeled_aug)
-
-        # Technique 1: entropy loss for augmented images
-        entropy_weight = 1.0
-        loss_entropy = entropy_weight * entropy_criterion(output_unlabeled_aug)
-        loss_all += loss_entropy
-        meters['losses_entropy'].update( loss_entropy.item(), images_unlabeled.size(0) )
+        #sub_batch_count = -( - images_unlabeled_all.size(0) // args.batch_size )
+        loss_unsup_all = 0
+        for sub_batch_idx in range(args.unlabeled_iter):
+            t1 = time.time()
+            images_unlabeled, images_unlabeled_aug = next(iter_unsup)
+            data_time += time.time() - t1
+            images_unlabeled, images_unlabeled_aug = images_unlabeled.cuda(), images_unlabeled_aug.cuda()
+            #images_unlabeled = images_unlabeled_all[ sub_batch_idx*args.batch_size: min( (sub_batch_idx+1)*args.batch_size, images_unlabeled_all.size(0))]
+            #images_unlabeled_aug = images_unlabeled_all_aug[ sub_batch_idx*args.batch_size: min( (sub_batch_idx+1)*args.batch_size, images_unlabeled_all.size(0))]
+            with torch.no_grad():
+                output_unlabeled = model(images_unlabeled)
+            output_unlabeled_aug = model(images_unlabeled_aug)
  
-        # Technique 2: Softmax temperature control for unsupervised loss
-        temperature = 0.4
-        unsup_loss_weight = 1.0
-        loss_unsup = torch.nn.functional.kl_div( 
-                                torch.nn.functional.log_softmax(output_unlabeled_aug, dim=1), 
-                                torch.nn.functional.softmax(output_unlabeled / temperature, dim=1).detach(),
-                                reduction='none')
- 
-        # Technique 3: confidence-based masking
-        threshold = 0.5
-        max_y_unlabeled = torch.max( torch.nn.functional.softmax( output_unlabeled / temperature, dim=1 ), 1, keepdim=True )
-        mask = (max_y_unlabeled > threshold).type(torch.cuda.FloatTensor)
- 
-        loss_unsup = torch.sum(loss_unsup * mask) / mask.mean()
- 
-        loss_unsup = loss_unsup * unsup_loss_weight
-        loss_all += loss_unsup
-        meters['losses_unsup'].update( loss_unsup.item(), images_unlabeled.size(0) )
+            # Technique 1: entropy loss for augmented images
+            entropy_weight = 1.0
+            loss_entropy = entropy_weight * entropy_criterion(output_unlabeled_aug)
+            meters['losses_entropy'].update( loss_entropy.item(), images_unlabeled.size(0) )
+  
+            # Technique 2: Softmax temperature control for unsupervised loss
+            temperature = 0.4
+            loss_kl = torch.nn.functional.kl_div( 
+                                    torch.nn.functional.log_softmax(output_unlabeled_aug, dim=1), 
+                                    torch.nn.functional.softmax(output_unlabeled / temperature, dim=1).detach(),
+                                    reduction='none')
+  
+            # Technique 3: confidence-based masking
+            threshold = 0.5
+            max_y_unlabeled = torch.max( torch.nn.functional.softmax( output_unlabeled / temperature, dim=1 ), 1, keepdim=True )[0]
+            mask = (max_y_unlabeled > threshold).type(torch.cuda.FloatTensor)
+  
+            loss_kl = torch.sum(loss_kl * mask) / (mask.mean()+1e-8)
+  
+            loss_unsup = loss_entropy + loss_kl
+            unsup_loss_weight = 20.0
+            loss_unsup = loss_unsup / args.unlabeled_iter * unsup_loss_weight
+            loss_unsup.backward()
+            loss_unsup_all += loss_unsup.item()
+        meters['losses_unsup'].update( loss_unsup_all, args.batch_size_unlabeled * args.unlabeled_iter )
     
 
     # measure accuracy and record loss
@@ -319,128 +329,14 @@ def train(iter_sup, model, optimizer, criterion, iter_unsup, entropy_criterion, 
 
     # compute gradient and do SGD step
 
-    optimizer.zero_grad()
-    loss_all.backward()
+    #loss_all.backward()
     optimizer.step()
+    optimizer.zero_grad()
 
     # measure elapsed time
     meters['batch_time'].update(time.time() - t0 - data_time)
     meters['data_time'].update(data_time)
 
-'''
-if True:
-    for epoch in range(args.start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch, args)
-
-        # train for one epoch
-        train(train_labeled_loader, train_unlabeled_loader, model, criterion, optimizer, epoch, args)
-
-        # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, args)
-
-        # remember best acc@1 and save checkpoint
-        is_best = acc1 > best_acc1
-        best_acc1 = max(acc1, best_acc1)
-
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'arch': args.arch,
-            'state_dict': model.state_dict(),
-            'best_acc1': best_acc1,
-            'optimizer' : optimizer.state_dict(),
-        }, is_best, args.save_dir)
-'''
-
-'''
-def train(train_labeled_loader, train_unlabeled_loader, model, criterion, optimizer, epoch, args):
-    batch_time = AverageMeter('Time', ':6.3f')
-    data_time = AverageMeter('Data', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    losses_entropy = AverageMeter('Loss entropy', ':.4e')
-    losses_unsup = AverageMeter('Loss unsup', ':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
-    progress = ProgressMeter(len(train_labeled_loader), batch_time, data_time, losses, losses_entropy, losses_unsup, top1,
-                             top5, prefix="Epoch: [{}]".format(epoch))
-
-    # switch to train mode
-    model.train()
-
-    end = time.time()
-    entropy_criterion = HLoss()
-
-    if train_unlabeled_loader is None:
-        train_unlabeled_iter = None
-    else:
-        train_unlabeled_iter = iter(train_unlabeled_loader)
-
-    for i, (images, target) in enumerate(train_labeled_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        target = target.cuda(args.gpu, non_blocking=True)
-
-        # compute output
-        output = model(images)
-        loss_all = 0
-        loss_cls = criterion(output, target)
-        losses.update(loss_cls.item(), images.size(0))
-        loss_all += loss_cls
-
-        if train_unlabeled_loader is not None:
-            #TODO 
-            images_unlabeled, images_unlabeled_aug = next(train_unlabeled_iter)
-    
-            with torch.no_grad():
-                output_unlabeled = model(images_unlabeled)
-            output_unlabeled_aug = model(images_unlabeled_aug)
-
-            # Technique 1: entropy loss for augmented images
-            entropy_weight = 1.0
-            loss_entropy = entropy_weight * entropy_criterion(output_unlabeled_aug)
-            loss_all += loss_entropy
-            losses_entropy.update( loss_entropy.item(), images_unlabeled.size(0) )
- 
-            # Technique 2: Softmax temperature control for unsupervised loss
-            temperature = 0.4
-            unsup_loss_weight = 1.0
-            loss_unsup = torch.nn.functional.kl_div( 
-                                    torch.nn.functional.log_softmax(output_unlabeled_aug, dim=1), 
-                                    torch.nn.functional.softmax(output_unlabeled / temperature, dim=1).detach(),
-                                    reduction='none')
- 
-            # Technique 3: confidence-based masking
-            threshold = 0.5
-            max_y_unlabeled = torch.max( torch.nn.functional.softmax( output_unlabeled / temperature, dim=1 ), 1, keepdim=True )
-            mask = (max_y_unlabeled > threshold).type(torch.cuda.FloatTensor)
- 
-            loss_unsup = torch.sum(loss_unsup * mask) / mask.mean()
- 
-            loss_unsup = loss_unsup * unsup_loss_weight
-            loss_all += loss_unsup
-            losses_unsup.update( loss_unsup.item(), images_unlabeled.size(0) )
-        
-
-        # measure accuracy and record loss
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
-
-        # compute gradient and do SGD step
-
-        optimizer.zero_grad()
-        loss_all.backward()
-        optimizer.step()
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        if i % args.print_freq == 0:
-            progress.print(i)
-'''
 
 class HLoss(nn.Module):
     def __init__(self):
