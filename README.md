@@ -24,9 +24,10 @@ A PyTorch implementation for [Unsupervised Data Augmentation](https://arxiv.org/
 
 | Exp      | Top-1 (paper) | Top-5 (paper)         | Top-1  | Top-5  |
 |----------|---------------|-----------------------|--------|--------|
-| Baseline | 55.09         | 77.26 (80.43 in S4L)  | 54.184 | 79.116 |
-| UDA      | 68.66         | 88.52                 | -      | -      |
-| S4L      | -             | 91.23 (ResNet50v2 4x) | -      | -      |
+| RN50     | 55.09         | 77.26 (80.43 in S4L)  | 54.184 | 79.116 |
+| RN18     | -             | -                     | 50.594 | 76.138 |
+| UDA(RN50)| 68.66         | 88.52                 | -      | -      |
+| S4L(RN50)| -             | 91.23 (ResNet50v2 4x) | -      | -      |
 
 ## TODO List
 
